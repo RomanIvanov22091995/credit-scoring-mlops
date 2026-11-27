@@ -1,0 +1,40 @@
+# Loki single-binary для локальной отладки (docker run без Kubernetes).
+# В кластере Loki ставится чартом grafana/loki-stack
+# (monitoring/helm/loki-values.yaml) — там же pipeline-парсинг JSON.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: 168h        # 7 дней (в кластере 336h = 14 дней)
+  reject_old_samples: true
+  reject_old_samples_max_age: 48h
+
+# Promtail (или другой клиент) шлёт логи на:
+#   POST http://localhost:3100/loki/api/v1/push
+# Grafana добавляет datasource: type=loki, url=http://localhost:3100
