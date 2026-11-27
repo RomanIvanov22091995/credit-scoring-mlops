@@ -1,0 +1,14 @@
+# Конфигурация DVC. Remote — Yandex Object Storage (S3-совместимый),
+# креды не хранятся в репозитории: задаются env (AWS_ACCESS_KEY_ID/SECRET).
+[core]
+    remote = origin
+
+[remote "origin"]
+    url = s3://credit-scoring-dvc-staging
+    endpointurl = https://storage.yandexcloud.net
+    # region = ru-central1
+
+# Пример второго remote для production:
+# [remote "prod"]
+#     url = s3://credit-scoring-dvc-production
+#     endpointurl = https://storage.yandexcloud.net

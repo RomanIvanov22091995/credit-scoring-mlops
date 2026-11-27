@@ -1,0 +1,48 @@
+{
+  "tolerance": 0.0001,
+  "checks": {
+    "onnx_checker": true,
+    "input_name": true,
+    "output_name": true,
+    "input_shape_dynamic_batch": true,
+    "input_dtype_float32": true,
+    "parity_random_5000": true,
+    "parity_zeros": true,
+    "parity_extremes": true,
+    "parity_test_dataset": true,
+    "auc_match_test": true
+  },
+  "datasets": {
+    "random_5000": {
+      "n": 5000,
+      "max_abs_diff": 1.2e-07,
+      "mean_abs_diff": 3e-08,
+      "class_agreement": 1.0,
+      "passed": true
+    },
+    "zeros": {
+      "n": 8,
+      "max_abs_diff": 1e-07,
+      "mean_abs_diff": 1e-07,
+      "class_agreement": 1.0,
+      "passed": true
+    },
+    "extremes": {
+      "n": 4,
+      "max_abs_diff": 0.0,
+      "mean_abs_diff": 0.0,
+      "class_agreement": 1.0,
+      "passed": true
+    },
+    "test_dataset": {
+      "n": 12000,
+      "max_abs_diff": 1.5e-07,
+      "mean_abs_diff": 3e-08,
+      "class_agreement": 1.0,
+      "passed": true
+    }
+  },
+  "test_roc_auc_pytorch": 0.735762,
+  "test_roc_auc_onnx": 0.735762,
+  "all_passed": true
+}

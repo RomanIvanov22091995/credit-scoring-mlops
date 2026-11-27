@@ -1,0 +1,67 @@
+# =============================================================================
+# Seldon Core: управление жизненным циклом моделей.
+#   1. A/B-тест: 75/25 между версиями v1 (fp32) и v2 (int8-квантованная)
+#   2. Canary:   90/10 c постепенным увеличением трафика
+#   3. Shadow:   кандидат получает 100% трафика-«тени», ответы не отдаются
+# Установка Seldon Core: helm install seldon-core-operator seldon-core/seldon-core-operator
+# =============================================================================
+# --- Основной деплой v1 (fp32 ONNX) ---
+apiVersion: machinelearning.seldon.io/v1
+kind: SeldonDeployment
+metadata:
+  name: credit-scoring
+  namespace: credit-scoring
+spec:
+  name: credit-scoring
+  predictors:
+    - name: main
+      replicas: 3
+      trafficPercentage: 75
+      componentSpecs:
+        - spec:
+            containers:
+              - name: classifier
+                image: credit-scoring-api:1.0.0
+                imagePullPolicy: IfNotPresent
+                env:
+                  - name: MODEL_VERSION
+                    value: "v1-fp32"
+                resources:
+                  requests:
+                    cpu: 250m
+                    memory: 256Mi
+                  limits:
+                    cpu: "1"
+                    memory: 512Mi
+      graph:
+        name: classifier
+        type: MODEL
+      svcOrchSpec:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+    # --- кандидат v2 (INT8) — A/B 25% трафика ---
+    - name: candidate
+      replicas: 2
+      trafficPercentage: 25
+      componentSpecs:
+        - spec:
+            containers:
+              - name: classifier
+                image: credit-scoring-api:1.0.0
+                env:
+                  - name: MODEL_VERSION
+                    value: "v2-int8"
+                  - name: MODEL_PATH
+                    value: /app/models/production/model_int8.onnx
+                volumeMounts:
+                  - name: models
+                    mountPath: /app/models
+            volumes:
+              - name: models
+                persistentVolumeClaim:
+                  claimName: scoring-models-pvc
+      graph:
+        name: classifier
+        type: MODEL

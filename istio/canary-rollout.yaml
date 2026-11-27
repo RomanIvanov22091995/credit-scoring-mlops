@@ -1,0 +1,74 @@
+# =============================================================================
+# Istio: canary-релизы без Seldon — через VirtualService/DestinationRule
+# (опциональная стратегия из Этапа 4).
+# Схема: scoring-api-stable (v1) + scoring-api-canary (v2),
+#        вес канарейки управляется через Istio и CI (canary-release.yml).
+# =============================================================================
+# --- DestinationRule: подмножества версий с mTLS ---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: scoring-api
+  namespace: credit-scoring
+spec:
+  host: scoring-api
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL      # mTLS внутри mesh
+    loadBalancer:
+      consistentHash:
+        httpCookie:
+          name: user-session
+          ttl: 3600s
+  subsets:
+    - name: stable
+      labels:
+        version: stable
+    - name: canary
+      labels:
+        version: canary
+---
+# --- VirtualService: 90/10 (начальный шаг канарейки) ---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: scoring-api-vs
+  namespace: credit-scoring
+spec:
+  hosts:
+    - scoring-api
+  http:
+    # Canary-анализ: ошибки/латентность канарейки под контролем CI;
+    # при инцидентах CI возвращает 100% на stable (rollback.yml).
+    - route:
+        - destination:
+            host: scoring-api
+            subset: stable
+          weight: 90
+        - destination:
+            host: scoring-api
+            subset: canary
+          weight: 10
+      timeout: 5s
+      retries:
+        attempts: 2
+        perTryTimeout: 2s
+        retryOn: "5xx,connect-failure,reset"
+      fault:                     # защита от каскадного сбоя
+        delay:
+          fixedDelay: 0s
+          percentage:
+            value: 0
+---
+# --- Пример шага 2 канарейки (50/50): применяется CI по мере уверенности ---
+# apiVersion: networking.istio.io/v1beta1
+# kind: VirtualService
+# metadata:
+#   name: scoring-api-vs
+# spec:
+#   http:
+#     - route:
+#         - destination: { host: scoring-api, subset: stable }
+#           weight: 50
+#         - destination: { host: scoring-api, subset: canary }
+#           weight: 50

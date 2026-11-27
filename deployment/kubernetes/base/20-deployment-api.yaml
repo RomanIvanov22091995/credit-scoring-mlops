@@ -1,0 +1,120 @@
+# Deployment API: rolling update, probes, resources, anti-affinity
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scoring-api
+  namespace: credit-scoring
+  labels:
+    app: scoring-api
+    app.kubernetes.io/name: scoring-api
+    app.kubernetes.io/part-of: credit-scoring
+    app.kubernetes.io/component: api
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  # Rolling update с нулевым простоем: maxSurge=1, maxUnavailable=0
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: scoring-api
+  template:
+    metadata:
+      labels:
+        app: scoring-api
+        app.kubernetes.io/name: scoring-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: scoring-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: credit-scoring-api:1.0.0   # тег подменяется CI (kustomize/set image)
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: scoring-config
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          # --- пробы: три уровня ---
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+          readinessProbe:      # готов принимать трафик: модель загружена + тестовый инференс
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:       # жив ли процесс (без тяжёлой работы)
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            # отчёты Evidently (пишет CronJob drift-check в подкаталог drift/)
+            # API отдаёт их в /drift-status (DRIFT_REPORT=/app/reports/drift/latest_drift.json)
+            - name: drift-reports
+              mountPath: /app/reports
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: drift-reports
+          persistentVolumeClaim:
+            claimName: scoring-reports-pvc
+---
+# Service API (ClusterIP — доступ только внутри кластера; наружу через Ingress)
+apiVersion: v1
+kind: Service
+metadata:
+  name: scoring-api
+  namespace: credit-scoring
+  labels:
+    app: scoring-api
+spec:
+  type: ClusterIP
+  selector:
+    app: scoring-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

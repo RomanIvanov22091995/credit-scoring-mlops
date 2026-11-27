@@ -1,0 +1,13 @@
+# Значения по умолчанию для staging. Секреты передаются через переменные
+# окружения: TF_VAR_yc_token, TF_VAR_ssh_public_key (см. README).
+# Для применения скопируйте в terraform.tfvars.local (в .gitignore).
+
+cloud_id       = "b1gxxxxxxxxxxxxxxxx"
+folder_id      = "b1gyyyyyyyyyyyyyyyy"
+registry_id    = "crXXXXXXXXXXXXXXXX"
+admin_cidrs    = ["10.0.0.0/8", "203.0.113.0/24"] # VPN + офис
+budget_amount  = 30000
+alert_email    = "mlops-team@example.com"
+
+# ssh_public_key — через TF_VAR_ssh_public_key
+# yc_token       — через TF_VAR_yc_token

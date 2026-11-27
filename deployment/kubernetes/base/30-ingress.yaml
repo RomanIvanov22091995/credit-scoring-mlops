@@ -1,0 +1,38 @@
+# Ingress: маршрутизация снаружи внутрь (nginx ingress controller)
+#   /api/*  -> scoring-api:8000 (с отрезанием префикса /api)
+#   /       -> scoring-frontend:80
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: scoring-ingress
+  namespace: credit-scoring
+  labels:
+    app.kubernetes.io/part-of: credit-scoring
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/proxy-body-size: "2m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    # cert-manager.io/cluster-issuer: letsencrypt-prod   # включить в production
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: scoring.example.com          # в staging подменяется через kustomize
+      http:
+        paths:
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: scoring-api
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: scoring-frontend
+                port:
+                  number: 80

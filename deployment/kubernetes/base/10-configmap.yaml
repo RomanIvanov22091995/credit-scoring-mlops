@@ -1,0 +1,23 @@
+# Конфигурация приложения (не секретная). Секреты — в Secret.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scoring-config
+  namespace: credit-scoring
+  labels:
+    app.kubernetes.io/part-of: credit-scoring
+data:
+  # --- API ---
+  DECISION_THRESHOLD: "0.5"
+  ORT_THREADS: "1"
+  CACHE_TTL_SECONDS: "300"
+  LOG_LEVEL: "INFO"
+  REDIS_URL: "redis://redis:6379/0"
+
+  # --- мониторинг ---
+  DRIFT_REPORT: "/app/reports/drift/latest_drift.json"
+  PROMETHEUS_SCRAPE: "true"
+
+  # --- обучение (для trainer Job) ---
+  TRAINING_BATCH_SIZE: "512"
+  TRAINING_EPOCHS: "40"

@@ -1,0 +1,257 @@
+{
+  "hardware": {
+    "platform": "darwin",
+    "cpu": 18,
+    "note": "Apple Silicon (M-series), CPUExecutionProvider"
+  },
+  "batch_sizes": [
+    1,
+    8,
+    32,
+    64,
+    128
+  ],
+  "thread_counts": [
+    1,
+    2,
+    4,
+    8
+  ],
+  "variants": {
+    "pytorch_fp32": {
+      "type": "pytorch",
+      "roc_auc_test": 0.73576,
+      "size_kb": 195.8
+    },
+    "onnx_fp32": {
+      "type": "ort",
+      "path": "models/production/model.onnx",
+      "roc_auc_test": 0.73576,
+      "size_kb": 195.1
+    },
+    "onnx_int8_dynamic": {
+      "type": "ort",
+      "path": "models/production/model_int8.onnx",
+      "roc_auc_test": 0.73577,
+      "size_kb": 60.1
+    },
+    "onnx_pruned_30": {
+      "type": "ort",
+      "path": "models/production/model_pruned.onnx",
+      "roc_auc_test": 0.73574,
+      "size_kb": 195.1
+    }
+  },
+  "latency_by_batch": {
+    "pytorch_fp32": {
+      "1": {
+        "p50_ms": 0.0389,
+        "p95_ms": 0.0425,
+        "p99_ms": 0.0518,
+        "mean_ms": 0.0388,
+        "throughput_rps": 25784.0
+      },
+      "8": {
+        "p50_ms": 0.1232,
+        "p95_ms": 0.146,
+        "p99_ms": 0.185,
+        "mean_ms": 0.125,
+        "throughput_rps": 8000.0
+      },
+      "32": {
+        "p50_ms": 0.1258,
+        "p95_ms": 0.1494,
+        "p99_ms": 0.1763,
+        "mean_ms": 0.1273,
+        "throughput_rps": 7856.0
+      },
+      "64": {
+        "p50_ms": 0.1315,
+        "p95_ms": 0.1515,
+        "p99_ms": 0.2258,
+        "mean_ms": 0.1344,
+        "throughput_rps": 7441.0
+      },
+      "128": {
+        "p50_ms": 0.1426,
+        "p95_ms": 0.1772,
+        "p99_ms": 0.2011,
+        "mean_ms": 0.1457,
+        "throughput_rps": 6862.0
+      }
+    },
+    "onnx_fp32": {
+      "1": {
+        "p50_ms": 0.0052,
+        "p95_ms": 0.0058,
+        "p99_ms": 0.0106,
+        "mean_ms": 0.0054,
+        "throughput_rps": 186603.0
+      },
+      "8": {
+        "p50_ms": 0.0091,
+        "p95_ms": 0.0098,
+        "p99_ms": 0.0163,
+        "mean_ms": 0.0095,
+        "throughput_rps": 105656.0
+      },
+      "32": {
+        "p50_ms": 0.0148,
+        "p95_ms": 0.0159,
+        "p99_ms": 0.0226,
+        "mean_ms": 0.015,
+        "throughput_rps": 66458.0
+      },
+      "64": {
+        "p50_ms": 0.0231,
+        "p95_ms": 0.0242,
+        "p99_ms": 0.0671,
+        "mean_ms": 0.0235,
+        "throughput_rps": 42501.0
+      },
+      "128": {
+        "p50_ms": 0.0393,
+        "p95_ms": 0.0401,
+        "p99_ms": 0.053,
+        "mean_ms": 0.0395,
+        "throughput_rps": 25331.0
+      }
+    },
+    "onnx_int8_dynamic": {
+      "1": {
+        "p50_ms": 0.0068,
+        "p95_ms": 0.0072,
+        "p99_ms": 0.014,
+        "mean_ms": 0.007,
+        "throughput_rps": 143409.0
+      },
+      "8": {
+        "p50_ms": 0.0096,
+        "p95_ms": 0.0101,
+        "p99_ms": 0.0154,
+        "mean_ms": 0.0097,
+        "throughput_rps": 102697.0
+      },
+      "32": {
+        "p50_ms": 0.0186,
+        "p95_ms": 0.0197,
+        "p99_ms": 0.0292,
+        "mean_ms": 0.0188,
+        "throughput_rps": 53072.0
+      },
+      "64": {
+        "p50_ms": 0.0302,
+        "p95_ms": 0.0343,
+        "p99_ms": 0.0593,
+        "mean_ms": 0.0308,
+        "throughput_rps": 32449.0
+      },
+      "128": {
+        "p50_ms": 0.0511,
+        "p95_ms": 0.0596,
+        "p99_ms": 0.0638,
+        "mean_ms": 0.0524,
+        "throughput_rps": 19091.0
+      }
+    },
+    "onnx_pruned_30": {
+      "1": {
+        "p50_ms": 0.0051,
+        "p95_ms": 0.0054,
+        "p99_ms": 0.0079,
+        "mean_ms": 0.0052,
+        "throughput_rps": 190583.0
+      },
+      "8": {
+        "p50_ms": 0.0091,
+        "p95_ms": 0.0095,
+        "p99_ms": 0.0096,
+        "mean_ms": 0.0091,
+        "throughput_rps": 109416.0
+      },
+      "32": {
+        "p50_ms": 0.0147,
+        "p95_ms": 0.0163,
+        "p99_ms": 0.0211,
+        "mean_ms": 0.015,
+        "throughput_rps": 66662.0
+      },
+      "64": {
+        "p50_ms": 0.023,
+        "p95_ms": 0.0239,
+        "p99_ms": 0.0442,
+        "mean_ms": 0.0232,
+        "throughput_rps": 43012.0
+      },
+      "128": {
+        "p50_ms": 0.0388,
+        "p95_ms": 0.0406,
+        "p99_ms": 0.0453,
+        "mean_ms": 0.0387,
+        "throughput_rps": 25863.0
+      }
+    }
+  },
+  "thread_scaling": {
+    "onnx_fp32": {
+      "1": {
+        "p50_ms": 0.0051,
+        "p95_ms": 0.0053,
+        "p99_ms": 0.0076,
+        "mean_ms": 0.0051,
+        "throughput_rps": 195469.0
+      },
+      "2": {
+        "p50_ms": 0.0052,
+        "p95_ms": 0.0054,
+        "p99_ms": 0.0056,
+        "mean_ms": 0.0053,
+        "throughput_rps": 190464.0
+      },
+      "4": {
+        "p50_ms": 0.0051,
+        "p95_ms": 0.0055,
+        "p99_ms": 0.0224,
+        "mean_ms": 0.0059,
+        "throughput_rps": 169974.0
+      },
+      "8": {
+        "p50_ms": 0.0052,
+        "p95_ms": 0.0054,
+        "p99_ms": 0.0063,
+        "mean_ms": 0.0053,
+        "throughput_rps": 188972.0
+      }
+    },
+    "onnx_int8_dynamic": {
+      "1": {
+        "p50_ms": 0.0068,
+        "p95_ms": 0.007,
+        "p99_ms": 0.0134,
+        "mean_ms": 0.0069,
+        "throughput_rps": 145092.0
+      },
+      "2": {
+        "p50_ms": 0.0083,
+        "p95_ms": 0.0089,
+        "p99_ms": 0.0172,
+        "mean_ms": 0.0087,
+        "throughput_rps": 115379.0
+      },
+      "4": {
+        "p50_ms": 0.0087,
+        "p95_ms": 0.0089,
+        "p99_ms": 0.009,
+        "mean_ms": 0.0087,
+        "throughput_rps": 114656.0
+      },
+      "8": {
+        "p50_ms": 0.0094,
+        "p95_ms": 0.0126,
+        "p99_ms": 0.0451,
+        "mean_ms": 0.0106,
+        "throughput_rps": 94628.0
+      }
+    }
+  }
+}

@@ -1,0 +1,37 @@
+# PVC для данных/моделей/отчётов (CronJob дрифта, Job переобучения, API).
+# В Yandex Cloud: storageclass network-ssd (создаётся автоматически через CSI).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: scoring-data-pvc
+  namespace: credit-scoring
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: standard      # kind: standard (local-path); YC: network-ssd
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: scoring-models-pvc
+  namespace: credit-scoring
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: scoring-reports-pvc
+  namespace: credit-scoring
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 2Gi

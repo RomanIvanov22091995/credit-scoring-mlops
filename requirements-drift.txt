@@ -1,0 +1,9 @@
+# Зависимости drift-мониторинга (изолированы от API: pandas<3 —
+# Evidently 0.6 использует приватные API pandas, удалённые в pandas 3.x)
+evidently==0.6.7
+pandas<3
+numpy<2.3
+scikit-learn==1.9.1
+onnxruntime==1.32.0
+joblib==1.6.0
+pyyaml==6.0.3

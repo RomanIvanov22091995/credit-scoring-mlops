@@ -1,0 +1,145 @@
+# =============================================================================
+# Правила алертинга: приложение, модель, дрифт, инфраструктура.
+# Подхватывается Prometheus Operator по label release: kube-prometheus-stack.
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: scoring-alerts
+  namespace: credit-scoring
+  labels:
+    release: kube-prometheus-stack
+    grafana_dashboard: "1"
+spec:
+  groups:
+    # ---------------- Доступность и SLO ----------------
+    - name: scoring.availability
+      rules:
+        - alert: ScoringApiDown
+          expr: up{job="credit-scoring/scoring-api"} == 0 or
+                absent(scoring_api_requests_total)
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Scoring API недоступен"
+            description: "Prometheus не видит ни одного живого инстанса API 2 минуты."
+            runbook_url: "https://github.com/<org>/credit-scoring-mlops/blob/main/docs/runbook.md#scoringapidown"
+
+        - alert: ScoringApiHigh5xxRate
+          expr: |
+            sum(rate(scoring_api_requests_total{status=~"5.."}[5m]))
+              / sum(rate(scoring_api_requests_total[5m])) > 0.02
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Доля 5xx > 2% за 5 минут"
+            description: "Сервис отдаёт ошибки. Текущая доля: {{ $value | humanizePercentage }}."
+            runbook_url: ".../docs/runbook.md#scoringapihigh5xxrate"
+
+        - alert: ScoringApiHighLatencyP95
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(scoring_api_request_latency_seconds_bucket[5m])) by (le)) > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "p95 латентности > 50 мс (SLO)"
+            description: "p95 сейчас {{ $value | humanizeDuration }}."
+            runbook_url: ".../docs/runbook.md#scoringapihighlatencyp95"
+
+        - alert: ScoringApiPodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total{namespace="credit-scoring",pod=~"scoring-api.*"}[30m]) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Под API рестартует более 3 раз за 30 минут"
+
+    # ---------------- Модель ----------------
+    - name: scoring.model
+      rules:
+        - alert: ScoringModelLatencyDegraded
+          expr: |
+            histogram_quantile(0.99, sum(rate(scoring_model_inference_latency_seconds_bucket[10m])) by (le)) > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Инференс модели медленный (p99 > 50 мс)"
+            description: "Проверить загрузку CPU/квоты. Версия: {{ $labels.model_version }}."
+
+        - alert: ScoringModelPredictionsStalled
+          expr: rate(scoring_model_predictions_total[10m]) == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Нет предсказаний 15 минут"
+            description: "Трафик мог упасть (ок) или API перестал принимать заявки (проверить ingress)."
+
+        - alert: ScoringModelProbabilitySkew
+          expr: |
+            (sum_over_time(scoring_model_predicted_probability_sum[1h])
+             / sum_over_time(scoring_model_predicted_probability_count[1h])) > 0.7
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Средняя вероятность дефолта аномально высокая (>0.7)"
+            description: "Возможен дрифт входных данных или деградация модели."
+
+    # ---------------- Дрифт (файл от Evidently CronJob) ----------------
+    - name: scoring.drift
+      rules:
+        - alert: ScoringDataDriftDetected
+          expr: scoring_drift_share_drifted_features > 0.25
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Data drift: {{ $value | humanizePercentage }} признаков дрейфуют"
+            description: "Evidently зафиксировал дрифт. Запущен триггер переобучения (Airflow)."
+            runbook_url: ".../docs/runbook.md#scoringdatadriftdetected"
+
+        - alert: ScoringModelAucDrop
+          expr: |
+            (scoring_drift_test_auc != scoring_drift_test_auc) or
+            (scoring_drift_test_auc < (max(scoring_drift_test_auc) - 0.05))
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "AUC упал более чем на 0.05 от максимума"
+            description: "Performance decay модели — требуется переобучение/анализ."
+
+        - alert: ScoringDriftCheckStale
+          expr: (time() - scoring_drift_last_check_timestamp_seconds) > 7200
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Evidently-проверка не выполнялась более 2 часов"
+            description: "CronJob drift-check мог сломаться — проверить логи."
+
+    # ---------------- Ресурсы / HPA ----------------
+    - name: scoring.resources
+      rules:
+        - alert: ScoringApiHpaMaxedOut
+          expr: |
+            kube_horizontalpodautoscaler_status_current_replicas{namespace="credit-scoring"}
+              >= kube_horizontalpodautoscaler_spec_max_replicas{namespace="credit-scoring"}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "HPA на максимуме — добавить capacity или поднять maxReplicas"
+
+        - alert: ScoringApiPodOOMKilled
+          expr: increase(kube_pod_container_status_last_terminated_reason{namespace="credit-scoring",reason="OOMKilled",pod=~"scoring-api.*"}[30m]) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "Под API убит по OOM — увеличить limits.memory"

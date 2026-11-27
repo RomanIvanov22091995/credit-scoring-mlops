@@ -1,0 +1,26 @@
+# =============================================================================
+# Drift monitor: периодический Evidently-отчёт (K8s CronJob).
+# Сравнивает reference (train) с current (свежие данные) и пишет
+# reports/drift/latest_drift.json + HTML-отчёт.
+# =============================================================================
+FROM python:3.11-slim
+
+LABEL org.opencontainers.image.title="credit-scoring-drift"
+
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+
+# pandas<3: Evidently использует приватные API pandas, удалённые в pandas 3.x
+COPY requirements-drift.txt .
+RUN pip install --upgrade pip && pip install -r requirements-drift.txt
+
+RUN groupadd -r drift && useradd -r -g drift -d /app drift
+WORKDIR /app
+COPY --chown=drift:drift scripts/drift/ ./scripts/drift/
+# FEATURE_NAMES/TARGET импортируются из генератора данных
+COPY --chown=drift:drift scripts/data_generation.py ./scripts/data_generation.py
+COPY --chown=drift:drift config/ ./config/
+
+USER drift
+VOLUME ["/app/data", "/app/reports"]
+
+CMD ["python", "scripts/drift/drift_monitoring.py"]

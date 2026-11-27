@@ -1,0 +1,73 @@
+# Frontend (nginx): Deployment + Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scoring-frontend
+  namespace: credit-scoring
+  labels:
+    app: scoring-frontend
+    app.kubernetes.io/name: scoring-frontend
+    app.kubernetes.io/part-of: credit-scoring
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: scoring-frontend
+  template:
+    metadata:
+      labels:
+        app: scoring-frontend
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: frontend
+          image: credit-scoring-frontend:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scoring-frontend
+  namespace: credit-scoring
+  labels:
+    app: scoring-frontend
+spec:
+  type: ClusterIP
+  selector:
+    app: scoring-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

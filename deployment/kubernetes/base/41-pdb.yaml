@@ -1,0 +1,22 @@
+# PodDisruptionBudget: при выкатках/дискепшенах не теряем вместимость API
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: scoring-api-pdb
+  namespace: credit-scoring
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: scoring-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: scoring-frontend-pdb
+  namespace: credit-scoring
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: scoring-frontend

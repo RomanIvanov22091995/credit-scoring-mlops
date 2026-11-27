@@ -1,0 +1,115 @@
+# =============================================================================
+# Деплой в staging: автоматически после успешного CI на ветке develop/main.
+# После деплоя — smoke-тесты + нагрузочный прогон; при падении — auto-rollback.
+# =============================================================================
+name: deploy-staging
+
+on:
+  workflow_run:
+    workflows: [build-and-test]
+    types: [completed]
+    branches: [develop, main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Тег образа (пусто = последний successful run)"
+        required: false
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/credit-scoring
+  KUBE_NAMESPACE: credit-scoring
+
+jobs:
+  deploy:
+    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Определяем тег образа
+        id: tag
+        run: |
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            echo "tag=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "tag=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Настройка kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+          kubectl config current-context
+
+      - name: Обновляем манифесты на новый тег (kustomize edit set image)
+        run: |
+          curl -sLo kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz
+          tar xzf kustomize.tar.gz
+          ./kustomize edit set image \
+            credit-scoring-api=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:${{ steps.tag.outputs.tag }} \
+            credit-scoring-frontend=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend:${{ steps.tag.outputs.tag }} \
+            credit-scoring-drift=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-drift:${{ steps.tag.outputs.tag }}
+        working-directory: deployment/kubernetes/base
+
+      - name: Применяем манифесты
+        run: |
+          kubectl apply -k deployment/kubernetes/base
+          kubectl -n ${{ env.KUBE_NAMESPACE }} set image deployment/scoring-api \
+            api=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:${{ steps.tag.outputs.tag }}
+
+      - name: Дожидаемся rollout
+        run: |
+          kubectl -n ${{ env.KUBE_NAMESPACE }} rollout status deployment/scoring-api --timeout=300s
+          kubectl -n ${{ env.KUBE_NAMESPACE }} rollout status deployment/scoring-frontend --timeout=120s
+
+      - name: Smoke-тесты против staging
+        run: |
+          API_URL="https://scoring.staging.example.com/api"
+          for i in 1 2 3 4 5; do
+            if curl -sf --max-time 5 "$API_URL/health"; then OK=1; break; fi
+            echo "попытка $i..."; sleep 10
+          done
+          [ "${OK:-0}" = "1" ] || { echo "healthcheck failed"; exit 1; }
+          curl -sf -X POST "$API_URL/predict" \
+            -H 'Content-Type: application/json' \
+            -d '{"applications":[{"age":35,"income_monthly":120000,"loan_amount":500000,"loan_term_months":36,"credit_utilization":0.35,"num_existing_loans":2,"delinquencies_24m":0,"late_payments_12m":1,"employment_years":6.5,"debt_to_income":0.28,"num_credit_inquiries":2,"credit_history_years":10,"revolving_balance":45000,"num_credit_cards":3,"mortgage":0,"is_employed":1,"education_level":2,"marital_status":1,"region_risk_score":0.4,"phone_verified":1}]}' | \
+            grep -E '"default_probability"|"decision"'
+
+      - name: Нагрузочный прогон (стресс-gate)
+        run: |
+          pip install locust
+          locust -f scripts/model_training/load_test.py \
+            --host https://scoring.staging.example.com \
+            --headless -u 20 -r 5 -t 60s \
+            --csv reports/load_tests/staging_ci --only-summary
+          # gate: если p95 > SLO — job падает, запускается rollback
+          python - <<'PY'
+          import csv
+          with open('reports/load_tests/staging_ci_stats.csv') as f:
+              for row in csv.DictReader(f):
+                  if row['Name'] == 'Aggregated':
+                      p95 = float(row['95%'])
+                      print(f"p95={p95}ms (SLO 50ms)")
+                      assert p95 < 50, f"p95 {p95}ms превышает SLO!"
+          PY
+
+      - name: Auto-rollback при провале шагов деплоя
+        if: failure()
+        run: |
+          echo "Деплой неудачен — откат на предыдущую ревизию"
+          kubectl -n ${{ env.KUBE_NAMESPACE }} rollout undo deployment/scoring-api || true
+          kubectl -n ${{ env.KUBE_NAMESPACE }} rollout status deployment/scoring-api --timeout=180s

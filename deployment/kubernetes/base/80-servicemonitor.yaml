@@ -1,0 +1,20 @@
+# ServiceMonitor: Prometheus Operator скрейпит API /metrics (Этап 5)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: scoring-api-monitor
+  namespace: credit-scoring
+  labels:
+    release: kube-prometheus-stack   # label, по которому stack находит мониторы
+spec:
+  selector:
+    matchLabels:
+      app: scoring-api
+  namespaceSelector:
+    matchNames:
+      - credit-scoring
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

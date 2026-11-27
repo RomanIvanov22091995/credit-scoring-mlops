@@ -1,0 +1,61 @@
+# =============================================================================
+# Параметры проекта: кредитный скоринг (промышленный MLOps)
+# Единый источник конфигурации для обучения, API, мониторинга
+# =============================================================================
+
+data:
+  n_samples: 60000
+  n_drift_samples: 5000
+  test_size: 0.2
+  val_size: 0.1
+  random_state: 42
+  drift_severity: 0.6        # сила дрифта для "current" данных (0..1)
+  default_rate_target: 0.2   # целевая доля дефолтов
+
+features:
+  categorical: []            # все признаки уже закодированы числами
+  target: default
+
+model:
+  # Архитектура MLP: слои, активация, dropout
+  hidden_dims: [256, 128, 64]
+  activation: relu
+  dropout: 0.25
+  use_batch_norm: true
+
+training:
+  epochs: 40
+  batch_size: 512
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  early_stopping_patience: 5
+  random_state: 42
+
+onnx:
+  opset: 15
+  dynamic_batch: true
+
+optimization:
+  quantization: dynamic_int8   # динамическая INT8-квантизация ONNX Runtime
+  pruning_amount: 0.3          # доля обнуляемых весов для pruning-эксперимента
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  redis_url: ""                # пусто = без кеширования; в K8s задаётся ConfigMap
+  cache_ttl_seconds: 300
+  workers: 1
+
+monitoring:
+  drift_check_interval_minutes: 60
+  drift_auc_drop_threshold: 0.05
+  latency_slo_ms: 50           # p95 цель
+  availability_slo: 0.999
+
+paths:
+  raw_data: data/raw
+  processed_data: data/processed
+  reference_data: data/reference
+  trained_models: models/trained
+  production_models: models/production
+  reports: reports

@@ -1,0 +1,98 @@
+# Job переобучения модели (вызывается Airflow-оператором или вручную).
+# GPU-вариант: раскомментировать nodeSelector/toleration для GPU node pool.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: model-retrain
+  namespace: credit-scoring
+  labels:
+    app.kubernetes.io/part-of: credit-scoring
+    app.kubernetes.io/component: training
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 3600
+  ttlSecondsAfterFinished: 168   # неделю храним pod-логи
+  template:
+    metadata:
+      labels:
+        app: model-retrain
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999          # PVC: group-writeable для uid 999
+        seccompProfile:
+          type: RuntimeDefault
+      # ---------- GPU pool (раскомментировать в production) ----------
+      # nodeSelector:
+      #   node-pool: gpu
+      # tolerations:
+      #   - key: "node.kubernetes.io/gpu"
+      #     operator: "Exists"
+      #     effect: "NoSchedule"
+      containers:
+        - name: trainer
+          image: credit-scoring-trainer:1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              echo "=== Переобучение: пайплайн данных -> модель -> ONNX -> оптимизация ==="
+              python scripts/data_generation.py --config config/params.yaml --out-dir /workspace
+              python scripts/model_training/train_model.py --config /workspace/config/params.yaml
+              python scripts/model_training/onnx_conversion.py --config /workspace/config/params.yaml
+              python scripts/model_training/onnx_validation.py --config /workspace/config/params.yaml
+              python scripts/model_training/optimize_model.py --config /workspace/config/params.yaml
+              echo "=== Репликация новых моделей в DVC remote ==="
+              dvc add models/production/model.onnx || true
+              echo "OK"
+          env:
+            - name: HOME
+              value: /tmp
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: scoring-secrets
+                  key: AWS_ACCESS_KEY_ID
+                  optional: true
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: scoring-secrets
+                  key: AWS_SECRET_ACCESS_KEY
+                  optional: true
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+          volumeMounts:
+            - name: data
+              mountPath: /workspace/data
+            - name: models
+              mountPath: /workspace/models
+            - name: reports
+              mountPath: /workspace/reports
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: scoring-data-pvc
+        - name: models
+          persistentVolumeClaim:
+            claimName: scoring-models-pvc
+        - name: reports
+          persistentVolumeClaim:
+            claimName: scoring-reports-pvc
+        - name: tmp
+          emptyDir: {}

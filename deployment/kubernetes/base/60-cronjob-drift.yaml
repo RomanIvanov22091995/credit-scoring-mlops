@@ -1,0 +1,76 @@
+# CronJob: проверка дрифта каждый час (Evidently -> latest_drift.json -> API/алерты)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: drift-check
+  namespace: credit-scoring
+  labels:
+    app.kubernetes.io/part-of: credit-scoring
+    app.kubernetes.io/component: monitoring
+spec:
+  schedule: "0 * * * *"       # ежечасно; продакшен-расписание задаётся конфигом
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app: drift-check
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            fsGroup: 999          # PVC: group-writeable для uid 999
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: drift
+              image: credit-scoring-drift:1.0.0
+              imagePullPolicy: IfNotPresent
+              command: ["python", "scripts/drift/drift_monitoring.py"]
+              args: ["--threshold", "0.25"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+              env:
+                - name: DRIFT_THRESHOLD
+                  valueFrom:
+                    configMapKeyRef:
+                      name: scoring-config
+                      key: DECISION_THRESHOLD
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+              volumeMounts:
+                - name: data
+                  mountPath: /app/data          # reference/current CSV (обновляется Job'ом)
+                - name: models
+                  mountPath: /app/models        # model.onnx + scaler.pkl
+                - name: reports
+                  mountPath: /app/reports       # HTML + latest_drift.json
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: scoring-data-pvc
+            - name: models
+              persistentVolumeClaim:
+                claimName: scoring-models-pvc
+            - name: reports
+              persistentVolumeClaim:
+                claimName: scoring-reports-pvc
+            - name: tmp
+              emptyDir: {}

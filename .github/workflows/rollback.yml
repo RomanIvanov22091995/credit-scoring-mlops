@@ -1,0 +1,90 @@
+# =============================================================================
+# Rollback: ручной (workflow_dispatch) и по расписанию проверки здоровья.
+# Возвращает предыдущую или указанную ревизию deployment'а API.
+# =============================================================================
+name: rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "undo | revision:N | image:<tag>"
+        default: "undo"
+        required: true
+      namespace:
+        default: "credit-scoring"
+  schedule:
+    # Страж: каждые 15 минут проверяет health прод-кластера
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rollback
+  cancel-in-progress: true
+
+jobs:
+  health-watch:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: kubectl (production)
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Проверка здоровья; при деградации — rollback
+        run: |
+          NS=credit-scoring
+          READY=$(kubectl -n $NS get deployment scoring-api \
+            -o jsonpath='{.status.readyReplicas}')
+          DESIRED=$(kubectl -n $NS get deployment scoring-api \
+            -o jsonpath='{.spec.replicas}')
+          echo "ready=${READY:-0}/${DESIRED}"
+          if [ "${READY:-0}" -lt "$DESIRED" ]; then
+            echo "Деградация: не все реплики готовы — откат"
+            kubectl -n $NS rollout undo deployment/scoring-api
+            kubectl -n $NS rollout status deployment/scoring-api --timeout=300s
+          else
+            echo "Здоровье в норме"
+          fi
+
+  manual-rollback:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: kubectl (production)
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Выполняем rollback (${{ inputs.target }})
+        run: |
+          NS=${{ inputs.namespace }}
+          TARGET=${{ inputs.target }}
+          case "$TARGET" in
+            undo)
+              kubectl -n $NS rollout undo deployment/scoring-api ;;
+            revision:*)
+              REV=${TARGET#revision:}
+              kubectl -n $NS rollout undo deployment/scoring-api --to-revision="$REV" ;;
+            image:*)
+              TAG=${TARGET#image:}
+              kubectl -n $NS set image deployment/scoring-api api="$TAG" ;;
+            *)
+              echo "Неизвестный target: $TARGET"; exit 1 ;;
+          esac
+          kubectl -n $NS rollout status deployment/scoring-api --timeout=300s
+
+      - name: Пост-проверка здоровья
+        run: |
+          kubectl -n ${{ inputs.namespace }} get pods -l app=scoring-api
+          kubectl -n ${{ inputs.namespace }} describe deployment scoring-api | tail -20

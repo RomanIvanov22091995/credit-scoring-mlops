@@ -1,0 +1,134 @@
+# Сетевые политики: default-deny + явные разрешения (zero-trust внутри namespace)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: credit-scoring
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+---
+# Ingress controller -> API и frontend
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-controller
+  namespace: credit-scoring
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: ["scoring-api", "scoring-frontend"]
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:                     # nginx ingress controller в своём namespace
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 80
+---
+# Frontend -> API (внутренний прокси статики)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-from-frontend
+  namespace: credit-scoring
+spec:
+  podSelector:
+    matchLabels:
+      app: scoring-api
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: scoring-frontend
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# API -> Redis (вход на redis-под от API-подов)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis-from-api
+  namespace: credit-scoring
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: scoring-api
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+# Prometheus -> API /metrics
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: credit-scoring
+spec:
+  podSelector:
+    matchLabels:
+      app: scoring-api
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/name: monitoring   # namespace monitoring-стека
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# Frontend -> API (proxy), API -> Redis (кеш), API -> DNS (egress)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-app-traffic
+  namespace: credit-scoring
+spec:
+  podSelector: {}
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: ["scoring-api", "redis", "scoring-frontend"]
+      ports:
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 8080
+    - to:                        # DNS
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

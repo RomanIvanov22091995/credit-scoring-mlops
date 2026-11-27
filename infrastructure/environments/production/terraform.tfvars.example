@@ -1,0 +1,8 @@
+# Значения для production. Секреты — только через TF_VAR_* переменные окружения.
+
+cloud_id       = "b1gxxxxxxxxxxxxxxxx"
+folder_id      = "b1gyyyyyyyyyyyyyyyy"
+registry_id    = "crXXXXXXXXXXXXXXXX"
+admin_cidrs    = ["10.0.0.0/8"]                     # только VPN/внутренние сети
+budget_amount  = 150000
+alert_email    = "oncall-ml@example.com"

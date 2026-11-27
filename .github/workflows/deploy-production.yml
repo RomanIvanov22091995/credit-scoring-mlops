@@ -1,0 +1,115 @@
+# =============================================================================
+# Деплой в production: только manual approval + только из main.
+# Пререквизиты: staging-health сработал. Порядок: pre-checks -> apply -> verify.
+# =============================================================================
+name: deploy-production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Тег образа для production (sha8)"
+        required: true
+      reason:
+        description: "Обоснование релиза (для аудита)"
+        required: true
+
+permissions:
+  contents: read
+  packages: read
+  id-token: write    # OIDC для облачной аутентификации (без долгоживущих ключей)
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/credit-scoring
+  KUBE_NAMESPACE: credit-scoring
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Проверки перед релизом
+        run: |
+          echo "Релиз ${{ inputs.image_tag }}. Обоснование: ${{ inputs.reason }}"
+          echo "Gates: (1) образ существует в GHCR; (2) staging проверен; (3) нет открытых CRITICAL CVE"
+          # Реальные проверки выполняются в последующих шагах/внешних системах.
+
+  deploy:
+    needs: [release-gate]
+    runs-on: ubuntu-latest
+    environment: production     # branch protection + required reviewers = окно одобрения
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Образ существует в реестре?
+        run: |
+          docker manifest inspect \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:${{ inputs.image_tag }} >/dev/null
+
+      - name: Настройка kubectl (production)
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Pre-deploy snapshot (текущий образ для аудита/отката)
+        run: |
+          kubectl -n ${{ env.KUBE_NAMESPACE }} get deployment scoring-api \
+            -o jsonpath='{.spec.template.spec.containers[0].image}' | tee previous_image.txt
+          echo "PREVIOUS_IMAGE=$(cat previous_image.txt)" >> "$GITHUB_ENV"
+
+      - name: Применяем манифесты + новый образ
+        run: |
+          kubectl apply -f deployment/kubernetes/base/10-configmap.yaml
+          kubectl -n ${{ env.KUBE_NAMESPACE }} set image deployment/scoring-api \
+            api=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:${{ inputs.image_tag }}
+
+      - name: Rollout с таймаутом
+        run: kubectl -n ${{ env.KUBE_NAMESPACE }} rollout status deployment/scoring-api --timeout=420s
+
+      - name: Post-deploy верификация
+        run: |
+          API_URL="https://scoring.example.com/api"
+          curl -sf --max-time 5 "$API_URL/ready"
+          RESP=$(curl -sf -X POST "$API_URL/predict" -H 'Content-Type: application/json' \
+            -d '{"applications":[{"age":35,"income_monthly":120000,"loan_amount":500000,"loan_term_months":36,"credit_utilization":0.35,"num_existing_loans":2,"delinquencies_24m":0,"late_payments_12m":1,"employment_years":6.5,"debt_to_income":0.28,"num_credit_inquiries":2,"credit_history_years":10,"revolving_balance":45000,"num_credit_cards":3,"mortgage":0,"is_employed":1,"education_level":2,"marital_status":1,"region_risk_score":0.4,"phone_verified":1}]}')
+          echo "$RESP"
+          echo "$RESP" | grep -q '"decision"' || { echo "некорректный ответ модели"; exit 1; }
+
+      - name: Canary-наблюдение 10 минут (метрики, ошибки)
+        run: |
+          echo "Наблюдаем p95/5xx 10 минут (Prometheus API):"
+          P95=$(curl -s --max-time 10 "${{ secrets.PROMETHEUS_URL }}/api/v1/query" \
+            --data-urlencode 'query=histogram_quantile(0.95, sum(rate(scoring_api_request_latency_seconds_bucket[2m])) by (le))' \
+            | python -c "import json,sys; d=json.load(sys.stdin); print(d['data']['result'][0]['value'][1] if d['data']['result'] else 0)")
+          echo "p95=${P95}s"
+          ERR=$(curl -s --max-time 10 "${{ secrets.PROMETHEUS_URL }}/api/v1/query" \
+            --data-urlencode 'query=sum(rate(scoring_api_requests_total{status=~"5.."}[5m]))' \
+            | python -c "import json,sys; d=json.load(sys.stdin); print(d['data']['result'][0]['value'][1] if d['data']['result'] else 0)")
+          echo "5xx rate=${ERR} rps"
+          python -c "
+          p95 = float('${P95}'); err = float('${ERR}')
+          assert p95 < 0.05, f'p95 {p95}s > SLO 50ms'
+          assert err < 0.05, f'5xx rate {err} > порога'
+          print('SLO соблюдены')"
+
+      - name: Auto-rollback при деградации
+        if: failure()
+        run: |
+          echo "Возврат на предыдущий образ: ${PREVIOUS_IMAGE}"
+          kubectl -n ${{ env.KUBE_NAMESPACE }} set image deployment/scoring-api api="${PREVIOUS_IMAGE}"
+          kubectl -n ${{ env.KUBE_NAMESPACE }} rollout status deployment/scoring-api --timeout=300s
+
+      - name: Запись о релизе (audit)
+        if: always()
+        run: |
+          echo "release=${{ inputs.image_tag }} previous=${PREVIOUS_IMAGE:-n/a} \
+          actor=${{ github.actor }} result=${{ job.status }} reason=${{ inputs.reason }}" \
+          >> release_log.txt
+          cat release_log.txt

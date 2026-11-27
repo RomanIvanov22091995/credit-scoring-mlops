@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Кредитный скоринг — Credit Scoring System</title>
+  <style>
+    :root { --bg:#0f172a; --card:#1e293b; --accent:#38bdf8; --ok:#22c55e; --bad:#ef4444; --text:#e2e8f0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 24px; }
+    .container { max-width: 1100px; margin: 0 auto; }
+    h1 { font-size: 1.6rem; margin-bottom: 4px; }
+    .sub { color: #94a3b8; margin-bottom: 20px; font-size: .9rem; }
+    .status { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: .8rem; background: #334155; }
+    .status.ok { background: #14532d; color: var(--ok); }
+    .status.bad { background: #7f1d1d; color: var(--bad); }
+    .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+    .card { background: var(--card); border-radius: 12px; padding: 20px; }
+    .card h2 { font-size: 1rem; margin-bottom: 14px; color: var(--accent); }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+    label { display: block; font-size: .75rem; color: #94a3b8; margin-bottom: 3px; }
+    input { width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: var(--text); font-size: .9rem; }
+    input:focus { outline: 1px solid var(--accent); }
+    button { margin-top: 16px; width: 100%; padding: 12px; border: none; border-radius: 8px; background: var(--accent); color: #0f172a; font-weight: 700; font-size: 1rem; cursor: pointer; }
+    button:hover { filter: brightness(1.1); }
+    button:disabled { opacity: .5; cursor: wait; }
+    .result { text-align: center; padding: 30px 10px; }
+    .decision { font-size: 2.2rem; font-weight: 800; margin: 12px 0; }
+    .decision.approve { color: var(--ok); }
+    .decision.reject { color: var(--bad); }
+    .prob { font-size: 1.1rem; color: #94a3b8; }
+    .band { display: inline-block; margin-top: 12px; padding: 4px 14px; border-radius: 14px; background: #334155; }
+    .meta { margin-top: 18px; font-size: .8rem; color: #64748b; }
+    .error { color: var(--bad); padding: 20px; text-align: center; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: .8rem; }
+    td { padding: 4px 8px; border-bottom: 1px solid #334155; }
+    td:last-child { text-align: right; color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Кредитный скоринг</h1>
+    <div class="sub">
+      Промышленная система оценки кредитных заявок · ML-модель (MLP → ONNX Runtime)
+      <span id="api-status" class="status">проверка API…</span>
+    </div>
+
+    <div class="layout">
+      <div class="card">
+        <h2>Заявка заёмщика</h2>
+        <form id="form">
+          <div class="grid">
+            <div><label>Возраст</label><input name="age" type="number" value="35" required></div>
+            <div><label>Доход, ₽/мес</label><input name="income_monthly" type="number" value="120000" required></div>
+            <div><label>Сумма кредита, ₽</label><input name="loan_amount" type="number" value="500000" required></div>
+            <div><label>Срок, мес</label><input name="loan_term_months" type="number" value="36" required></div>
+            <div><label>Утилизация кредита (0–1)</label><input name="credit_utilization" type="number" step="0.01" value="0.35" required></div>
+            <div><label>Действующие кредиты</label><input name="num_existing_loans" type="number" value="2" required></div>
+            <div><label>Делинквентности 24м</label><input name="delinquencies_24m" type="number" value="0" required></div>
+            <div><label>Просрочки 12м</label><input name="late_payments_12m" type="number" value="1" required></div>
+            <div><label>Стаж, лет</label><input name="employment_years" type="number" step="0.5" value="6.5" required></div>
+            <div><label>Долг / доход (0–1)</label><input name="debt_to_income" type="number" step="0.01" value="0.28" required></div>
+            <div><label>Запросы в БКИ</label><input name="num_credit_inquiries" type="number" value="2" required></div>
+            <div><label>История, лет</label><input name="credit_history_years" type="number" step="0.5" value="10" required></div>
+            <div><label>Возобновляемый баланс</label><input name="revolving_balance" type="number" value="45000" required></div>
+            <div><label>Кредитные карты</label><input name="num_credit_cards" type="number" value="3" required></div>
+            <div><label>Ипотека (0/1)</label><input name="mortgage" type="number" value="0" required></div>
+            <div><label>Занятость (0/1)</label><input name="is_employed" type="number" value="1" required></div>
+            <div><label>Образование (0–4)</label><input name="education_level" type="number" value="2" required></div>
+            <div><label>Семейное положение (0–3)</label><input name="marital_status" type="number" value="1" required></div>
+            <div><label>Риск региона (0–1)</label><input name="region_risk_score" type="number" step="0.01" value="0.4" required></div>
+            <div><label>Телефон подтверждён (0/1)</label><input name="phone_verified" type="number" value="1" required></div>
+          </div>
+          <button id="btn" type="submit">Оценить заявку</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Решение</h2>
+        <div id="result" class="result">
+          <div class="prob">Заполните заявку слева и нажмите «Оценить»</div>
+        </div>
+        <div class="meta" id="meta"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function checkApi() {
+      const el = document.getElementById('api-status');
+      try {
+        const r = await fetch('/api/health');
+        if (r.ok) { el.textContent = 'API: онлайн'; el.className = 'status ok'; }
+        else { el.textContent = 'API: деградация'; el.className = 'status bad'; }
+      } catch { el.textContent = 'API: недоступен'; el.className = 'status bad'; }
+    }
+    checkApi(); setInterval(checkApi, 30000);
+
+    document.getElementById('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn');
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      for (const k in data) data[k] = Number(data[k]);
+      btn.disabled = true;
+      try {
+        const r = await fetch('/api/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ applications: [data] }),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const j = await r.json();
+        const p = j.predictions[0];
+        const approve = p.decision === 'APPROVE';
+        document.getElementById('result').innerHTML = `
+          <div class="decision ${approve ? 'approve' : 'reject'}">${approve ? 'ОДОБРИТЬ' : 'ОТКАЗАТЬ'}</div>
+          <div class="prob">Вероятность дефолта: <b>${(p.default_probability * 100).toFixed(1)}%</b></div>
+          <div class="band">${p.score_band}</div>`;
+        document.getElementById('meta').innerHTML =
+          `Модель: ${j.model_version} · Инференс: ${j.latency_ms.toFixed(2)} мс` +
+          (j.cached ? ' · из кеша' : '');
+      } catch (err) {
+        document.getElementById('result').innerHTML =
+          `<div class="error">Ошибка запроса: ${err.message}</div>`;
+      } finally { btn.disabled = false; }
+    });
+  </script>
+</body>
+</html>

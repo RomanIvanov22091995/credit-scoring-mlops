@@ -1,0 +1,11 @@
+# Добавьте эти строки в главный .gitignore проекта
+data/
+models/trained/
+models/production/*.onnx
+reports/benchmark/*.png
+reports/drift/*.html
+__pycache__/
+*.pyc
+.venv*/
+*.egg-info/
+.DS_Store

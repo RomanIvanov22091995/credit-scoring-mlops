@@ -1,0 +1,26 @@
+{
+  "applications": [
+    {
+      "age": 35,
+      "income_monthly": 120000,
+      "loan_amount": 500000,
+      "loan_term_months": 36,
+      "credit_utilization": 0.35,
+      "num_existing_loans": 2,
+      "delinquencies_24m": 0,
+      "late_payments_12m": 1,
+      "employment_years": 6.5,
+      "debt_to_income": 0.28,
+      "num_credit_inquiries": 2,
+      "credit_history_years": 10.0,
+      "revolving_balance": 45000,
+      "num_credit_cards": 3,
+      "mortgage": 0,
+      "is_employed": 1,
+      "education_level": 2,
+      "marital_status": 1,
+      "region_risk_score": 0.4,
+      "phone_verified": 1
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "onnx_file": "models/production/model.onnx",
+  "size_kb": 195.1,
+  "opset": 18,
+  "providers": [
+    "CPUExecutionProvider"
+  ],
+  "benchmark_cpu": {
+    "pytorch_batch_1": {
+      "mean_ms": 0.039,
+      "p50_ms": 0.038,
+      "p95_ms": 0.041,
+      "p99_ms": 0.076,
+      "runs": 200
+    },
+    "onnx_batch_1": {
+      "mean_ms": 0.005,
+      "p50_ms": 0.005,
+      "p95_ms": 0.006,
+      "p99_ms": 0.006,
+      "runs": 200
+    },
+    "pytorch_batch_32": {
+      "mean_ms": 0.127,
+      "p50_ms": 0.127,
+      "p95_ms": 0.148,
+      "p99_ms": 0.176,
+      "runs": 200
+    },
+    "onnx_batch_32": {
+      "mean_ms": 0.025,
+      "p50_ms": 0.026,
+      "p95_ms": 0.031,
+      "p99_ms": 0.115,
+      "runs": 200
+    },
+    "pytorch_batch_128": {
+      "mean_ms": 0.147,
+      "p50_ms": 0.144,
+      "p95_ms": 0.18,
+      "p99_ms": 0.206,
+      "runs": 200
+    },
+    "onnx_batch_128": {
+      "mean_ms": 0.046,
+      "p50_ms": 0.043,
+      "p95_ms": 0.057,
+      "p99_ms": 0.131,
+      "runs": 200
+    }
+  },
+  "speedup_single_sample": 7.6
+}

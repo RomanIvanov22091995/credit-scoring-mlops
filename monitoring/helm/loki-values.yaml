@@ -1,0 +1,54 @@
+# =============================================================================
+# Loki-stack: централизованное логирование (Loki + Promtail)
+# Установка: helm repo add grafana https://grafana.github.io/helm-charts
+#            helm install loki grafana/loki-stack -n monitoring -f monitoring/helm/loki-values.yaml
+# =============================================================================
+loki:
+  enabled: true
+  config:
+    limits_config:
+      retention_period: 336h        # 14 дней
+      reject_old_samples: true
+      reject_old_samples_max_age: 48h
+  persistence:
+    enabled: true
+    storageClassName: standard
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+promtail:
+  enabled: true
+  config:
+    clients:
+      - url: http://loki:3100/loki/api/v1/push
+    # Структурированные JSON-логи API парсим в поля
+    snippets:
+      pipelineStages:
+        - cri: {}
+        - json:
+            expressions:
+              level: level
+              logger: logger
+              msg: msg
+        - labels:
+            level:
+        - output:
+            source: msg
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+grafana:
+  enabled: false   # используем Grafana из kube-prometheus-stack
+
+# Prometheus Loki rule для алертов по логам (через ruler)
+monitoring:
+  lokiRule:
+    enabled: true

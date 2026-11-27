@@ -1,0 +1,115 @@
+# =============================================================================
+# Canary-релиз с Istio: 10% -> 25% -> 50% -> 100% с анализом метрик на каждом
+# шаге. При деградации на любом шаге — автоматический откат к stable.
+# =============================================================================
+name: canary-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Кандидат (canary) тег образа"
+        required: true
+      first_step_percent:
+        description: "Стартовый процент трафика"
+        default: "10"
+
+concurrency:
+  group: canary
+  cancel-in-progress: true
+
+env:
+  KUBE_NAMESPACE: credit-scoring
+  STEPS: "10 25 50 100"        # лестница трафика
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: kubectl (production)
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Деплой canary-деплоймента (version=canary)
+        run: |
+          kubectl -n $KUBE_NAMESPACE get deploy scoring-api -o json | \
+            jq '.spec.template.spec.containers[0].image="${{ inputs.image_tag }}" | .metadata.name="scoring-api-canary" | del(.spec.selector.matchLabels.version) | .spec.template.metadata.labels.version="canary" | .spec.selector.matchLabels = {app:"scoring-api"} | del(.spec.replicas) | .spec.replicas=2' \
+            > canary.json
+          kubectl apply -f canary.json
+          kubectl -n $KUBE_NAMESPACE rollout status deployment/scoring-api-canary --timeout=300s
+
+      - name: Ступени трафика с анализом метрик
+        run: |
+          STEP_PCT="${{ inputs.first_step_percent }}"
+          for STEP in $STEPS; do
+            # пропускаем шаги меньше стартового
+            if [ "$STEP" -lt "$STEP_PCT" ]; then continue; fi
+            echo "=== Канарейка: ${STEP}% трафика ==="
+            kubectl -n $KUBE_NAMESPACE apply -f - <<EOF
+          apiVersion: networking.istio.io/v1beta1
+          kind: VirtualService
+          metadata:
+            name: scoring-api-vs
+            namespace: $KUBE_NAMESPACE
+          spec:
+            hosts: [scoring-api]
+            http:
+              - route:
+                  - destination: {host: scoring-api, subset: stable}
+                    weight: $((100 - STEP))
+                  - destination: {host: scoring-api, subset: canary}
+                    weight: ${STEP}
+          EOF
+
+            echo "Наблюдение 5 минут на шаге ${STEP}%..."
+            sleep 300
+
+            python - <<'PY'
+          import json, os, sys, urllib.request
+
+          PROM = os.environ["PROMETHEUS_URL"]
+
+          def query(expr):
+              url = f"{PROM}/api/v1/query?query={urllib.parse.quote(expr)}"
+              with urllib.request.urlopen(url, timeout=15) as r:
+                  d = json.load(r)
+              return d["data"]["result"][0]["value"][1] if d["data"]["result"] else "0"
+
+          p95 = float(query(
+              'histogram_quantile(0.95, sum(rate(scoring_api_request_latency_seconds_bucket{version="canary"}[5m])) by le)'))
+          err = float(query(
+              'sum(rate(scoring_api_requests_total{version="canary",status=~"5.."}[5m]))'))
+          print(f"canary p95={p95:.4f}s, 5xx={err:.5f} rps")
+          failed = p95 > 0.05 or err > 0.01
+          sys.exit(1 if failed else 0)
+          PY
+
+            if [ $? -ne 0 ]; then
+              echo "!!! Метрики канарейки деградировали на шаге ${STEP}% — откат"
+              kubectl -n $KUBE_NAMESPACE delete virtualservice scoring-api-vs --ignore-not-found
+              kubectl -n $KUBE_NAMESPACE apply -f istio/canary-rollout.yaml   # 90/10 -> фактически все на stable
+              kubectl -n $KUBE_NAMESPACE scale deployment/scoring-api-canary --replicas=0
+              exit 1
+            fi
+          done
+
+      - name: Промоушен canary -> stable
+        if: success()
+        run: |
+          echo "Канарейка успешна: фиксируем образ ${{ inputs.image_tag }} как stable"
+          kubectl -n $KUBE_NAMESPACE set image deployment/scoring-api \
+            api=${{ inputs.image_tag }}
+          kubectl -n $KUBE_NAMESPACE rollout status deployment/scoring-api --timeout=420s
+          kubectl -n $KUBE_NAMESPACE scale deployment/scoring-api-canary --replicas=0
+
+      - name: Rollback по любому сбою job
+        if: failure()
+        run: |
+          kubectl -n $KUBE_NAMESPACE scale deployment/scoring-api-canary --replicas=0 || true
+          kubectl -n $KUBE_NAMESPACE apply -f istio/canary-rollout.yaml || true

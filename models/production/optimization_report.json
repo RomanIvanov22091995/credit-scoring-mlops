@@ -1,0 +1,67 @@
+{
+  "variants": {
+    "onnx_fp32": {
+      "latency_b1": {
+        "p50_ms": 0.0052,
+        "p95_ms": 0.0062,
+        "p99_ms": 0.0079,
+        "throughput_per_sec": 193573.0
+      },
+      "latency_b32": {
+        "p50_ms": 0.0147,
+        "p95_ms": 0.0151,
+        "p99_ms": 0.0162,
+        "throughput_per_sec": 67797.0
+      },
+      "size_kb": 195.1,
+      "roc_auc_test": 0.73576
+    },
+    "onnx_int8_dynamic": {
+      "latency_b1": {
+        "p50_ms": 0.0069,
+        "p95_ms": 0.0075,
+        "p99_ms": 0.0093,
+        "throughput_per_sec": 145454.0
+      },
+      "latency_b32": {
+        "p50_ms": 0.0185,
+        "p95_ms": 0.0188,
+        "p99_ms": 0.0238,
+        "throughput_per_sec": 54054.0
+      },
+      "size_kb": 60.1,
+      "roc_auc_test": 0.73577
+    },
+    "onnx_pruned_30": {
+      "latency_b1": {
+        "p50_ms": 0.0052,
+        "p95_ms": 0.0065,
+        "p99_ms": 0.0178,
+        "throughput_per_sec": 193573.0
+      },
+      "latency_b32": {
+        "p50_ms": 0.0146,
+        "p95_ms": 0.015,
+        "p99_ms": 0.0171,
+        "throughput_per_sec": 68376.0
+      },
+      "size_kb": 195.1,
+      "roc_auc_test": 0.73574
+    }
+  },
+  "quantization": {
+    "type": "dynamic_int8",
+    "per_channel": true,
+    "size_reduction": 3.24
+  },
+  "pruning": {
+    "method": "l1_unstructured",
+    "sparsity": 0.3,
+    "finetune_loss": 0.4157
+  },
+  "quality_threshold": {
+    "max_auc_drop": 0.005,
+    "int8_ok": true,
+    "pruned_ok": true
+  }
+}

@@ -1,0 +1,48 @@
+# Shadow deployment: кандидат обрабатывает 100% трафика-тени,
+# ответы пользователям отдаёт только main. Идеален для «проверки на живых данных».
+apiVersion: machinelearning.seldon.io/v1
+kind: SeldonDeployment
+metadata:
+  name: credit-scoring-shadow
+  namespace: credit-scoring
+spec:
+  name: credit-scoring-shadow
+  predictors:
+    - name: main
+      replicas: 3
+      trafficPercentage: 100
+      componentSpecs:
+        - spec:
+            containers:
+              - name: classifier
+                image: credit-scoring-api:1.0.0
+                env:
+                  - name: MODEL_VERSION
+                    value: "v1-fp32-main"
+      graph:
+        name: classifier
+        type: MODEL
+    # shadow: true — трафик зеркалится, ответы кандидата НЕ возвращаются клиенту
+    - name: shadow-candidate
+      replicas: 2
+      shadow: true
+      componentSpecs:
+        - spec:
+            containers:
+              - name: classifier
+                image: credit-scoring-api:1.0.0
+                env:
+                  - name: MODEL_VERSION
+                    value: "v3-shadow"
+                  - name: MODEL_PATH
+                    value: /app/models/production/model_pruned.onnx
+                volumeMounts:
+                  - name: models
+                    mountPath: /app/models
+            volumes:
+              - name: models
+                persistentVolumeClaim:
+                  claimName: scoring-models-pvc
+      graph:
+        name: classifier
+        type: MODEL

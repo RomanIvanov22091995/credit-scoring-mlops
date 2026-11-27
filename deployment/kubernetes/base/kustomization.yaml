@@ -1,0 +1,35 @@
+# Порядок применения манифестов (kubectl apply -k deployment/kubernetes/base)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: credit-scoring
+
+resources:
+  - 00-namespace.yaml
+  - 10-configmap.yaml
+  - 11-secret.example.yaml
+  - 15-pvc.yaml
+  - 20-deployment-api.yaml
+  - 21-deployment-frontend.yaml
+  - 22-redis.yaml
+  - 30-ingress.yaml
+  - 40-hpa.yaml
+  - 41-pdb.yaml
+  - 50-networkpolicy.yaml
+  - 60-cronjob-drift.yaml
+  - 70-job-retrain.yaml
+  - 80-servicemonitor.yaml
+
+# Оверлеи окружений: deployment/kubernetes/overlays/{staging,production}
+# commonLabels:
+#   app.kubernetes.io/managed-by: kustomize
+
+images:
+  - name: credit-scoring-api
+    newTag: 1.0.0
+  - name: credit-scoring-frontend
+    newTag: 1.0.0
+  - name: credit-scoring-drift
+    newTag: 1.0.0
+  - name: credit-scoring-trainer
+    newTag: 1.0.0

@@ -1,0 +1,69 @@
+# DVC pipeline: воспроизводимый путь данные -> модель -> артефакты
+# Локально: dvc repro    |  В контейнере: python скриптов напрямую (Cmd в Dockerfile)
+stages:
+  data_generation:
+    cmd: python scripts/data_generation.py --config config/params.yaml
+    deps:
+      - scripts/data_generation.py
+      - config/params.yaml
+    outs:
+      - data/raw/credit_raw_full.csv:
+          cache: true
+      - data/processed/train.csv:
+          cache: true
+      - data/processed/validation.csv:
+          cache: true
+      - data/processed/test.csv:
+          cache: true
+      - data/reference/reference.csv:
+          cache: true
+    metrics: []
+
+  train_model:
+    cmd: python scripts/model_training/train_model.py --config config/params.yaml
+    deps:
+      - scripts/model_training/train_model.py
+      - data/processed/train.csv
+      - data/processed/validation.csv
+    params:
+      - model.hidden_dims
+      - model.dropout
+      - training.epochs
+      - training.learning_rate
+    outs:
+      - models/trained/model.pt:
+          cache: true
+      - models/trained/scaler.pkl:
+          cache: true
+    metrics:
+      - models/trained/metrics.json:
+          cache: false
+
+  onnx_convert:
+    cmd: >
+      python scripts/model_training/onnx_conversion.py --config config/params.yaml &&
+      python scripts/model_training/onnx_validation.py
+    deps:
+      - scripts/model_training/onnx_conversion.py
+      - scripts/model_training/onnx_validation.py
+      - models/trained/model.pt
+    outs:
+      - models/production/model.onnx:
+          cache: true
+    metrics:
+      - models/production/conversion_report.json:
+          cache: false
+      - models/production/validation_report.json:
+          cache: false
+
+  optimize:
+    cmd: python scripts/model_training/optimize_model.py --config config/params.yaml
+    deps:
+      - scripts/model_training/optimize_model.py
+      - models/production/model.onnx
+    outs:
+      - models/production/model_int8.onnx:
+          cache: true
+    metrics:
+      - models/production/optimization_report.json:
+          cache: false

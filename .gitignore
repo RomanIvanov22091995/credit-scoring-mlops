@@ -1,0 +1,22 @@
+# Артефакты рантайма и окружений — не в git
+data/
+models/trained/
+models/production/*.onnx
+reports/benchmark/*.png
+reports/drift/*.html
+__pycache__/
+*.py[cod]
+.venv*/
+*.egg-info/
+.DS_Store
+.pytest_cache/
+.infra-tmp/
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
+tfplan
+tfplan.json
+venv/
+node_modules/

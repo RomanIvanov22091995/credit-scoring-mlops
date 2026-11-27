@@ -1,0 +1,58 @@
+# =============================================================================
+# Credit Scoring API — многостадийная сборка.
+# Стадия 1 (builder): компиляция зависимостей в отдельный venv.
+# Стадия 2 (runtime): python-slim + только рантайм, non-root, healthcheck.
+# Кэш-слои: requirements копируются отдельно от кода.
+# =============================================================================
+FROM python:3.11-slim AS builder
+
+ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY requirements-api.txt .
+RUN pip install --upgrade pip && pip install -r requirements-api.txt
+
+# ------------------------------- runtime -------------------------------------
+FROM python:3.11-slim AS runtime
+
+LABEL org.opencontainers.image.title="credit-scoring-api" \
+      org.opencontainers.image.description="Credit scoring ONNX inference API" \
+      org.opencontainers.image.licenses="MIT"
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    MODEL_PATH=/app/models/production/model.onnx \
+    SCALER_PATH=/app/models/trained/scaler.pkl \
+    META_PATH=/app/models/trained/metrics.json \
+    FEATURE_PATH=/app/config/feature_names.json
+
+COPY --from=builder /opt/venv /opt/venv
+
+# только нужные артефакты: код API + модель + конфиг
+WORKDIR /app
+COPY api/ ./api/
+COPY config/ ./config/
+COPY models/production/model.onnx ./models/production/model.onnx
+COPY models/trained/scaler.pkl ./models/trained/scaler.pkl
+COPY models/trained/metrics.json ./models/trained/metrics.json
+
+# non-root пользователь
+RUN groupadd -r scorer && useradd -r -g scorer -d /app scorer \
+    && chown -R scorer:scorer /app
+USER scorer
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=3 \
+  CMD python -c "import urllib.request,sys; \
+sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).status == 200 else 1)"
+
+# 1 worker: ORT-сессия одна, масштабирование горизонтальное (HPA), не вертикальное
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--workers", "1", "--timeout-keep-alive", "30"]

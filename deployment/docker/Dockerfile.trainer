@@ -1,0 +1,61 @@
+# =============================================================================
+# Trainer: обучение + переобучение модели.
+# Стадии: builder (deps) -> dvc (pull данных из S3-remote) -> final (обучение).
+# Запуск: python scripts/model_training/train_model.py [--full-pipeline]
+# =============================================================================
+FROM python:3.11-slim AS builder
+
+ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential g++ git \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+COPY requirements-ml.txt .
+RUN pip install --upgrade pip && pip install -r requirements-ml.txt
+
+# ------------------------------- DVC stage -----------------------------------
+FROM python:3.11-slim AS dvc
+
+ENV PIP_NO_CACHE_DIR=1
+RUN python -m venv /opt/dvcenv && /opt/dvcenv/bin/pip install "dvc[s3]"
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/dvcenv/bin:/opt/venv/bin:$PATH"
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+# конфиги DVC (config + remote)
+COPY .dvc .dvc/
+# Если data закеширована в DVC remote — тянем её на этапе сборки:
+#   docker build --build-arg DVC_PULL=true ...
+# Аргументы S3 задаются через env при сборке/запуске (см. deploy-staging.yml)
+ARG DVC_PULL=false
+COPY dvc.yaml ./
+RUN if [ "$DVC_PULL" = "true" ]; then dvc pull -r origin -v; else echo "DVC pull skipped (данные придут в runtime)"; fi
+
+# ------------------------------- final ----------------------------------------
+FROM python:3.11-slim AS final
+
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:/opt/dvcenv/bin:$PATH"
+
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=dvc /opt/dvcenv /opt/dvcenv
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -r trainer && useradd -r -g trainer -d /workspace trainer
+
+WORKDIR /workspace
+COPY --chown=trainer:trainer scripts/ ./scripts/
+COPY --chown=trainer:trainer config/ ./config/
+COPY --chown=trainer:trainer dvc.yaml ./
+COPY --chown=trainer:trainer .dvc/ ./.dvc/
+
+USER trainer
+# артефакты (модели, данные) пишем в примонтированные volume/PVC
+VOLUME ["/workspace/data", "/workspace/models", "/workspace/reports"]
+
+# Полный пайплайн: данные -> обучение -> ONNX -> валидация -> оптимизация -> benchmark
+CMD ["python", "scripts/model_training/train_model.py"]
